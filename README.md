@@ -1,7 +1,8 @@
 # Proxy-Re-Encryption
 
 ## Overview
-IDベース暗号をC言語で実装できるかなってやつ[(これ)](https://github.com/jpfaw/ID-based-cryptography)を元に、プロキシ再暗号化(代理人再暗号化)を実装してみたい
+プロキシ再暗号化(代理人再暗号化)を実装してみたい  
+とりあえずECDH鍵共有からやっている途中  
   
 ## 使用ライブラリ
  - OpenSSL (OpenSSL 1.0.2k-fips  26 Jan 2017)

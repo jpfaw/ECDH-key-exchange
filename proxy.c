@@ -5,18 +5,22 @@
 #include <string.h>
 
 #include <gmp.h>
+#include <sys/time.h>
 #include <tepla/ec.h>
 #include <openssl/sha.h>
 
+typedef enum{
+    ADD,
+    SUB,
+    XOR
+}Mode;
+
 // プロトタイプ宣言
 void print_green_color(const char *text);
-void hash1(EC_POINT P,const char *id);
 void create_mpz_t_random(mpz_t op, const mpz_t n);
-void char_to_hash(unsigned char *hash, const char* id);
-void create_master_private_key(mpz_t private_key, const mpz_t n);
 void print_unsigned_char(const unsigned char *uc, const char *dataName, const size_t size);
-void exclusive_disjunction(unsigned char *ciphertext, const unsigned char *hash,
-                           const char *text, const size_t hashSize, const size_t textSize);
+void calculation(Mode mode, unsigned char *ciphertext, const unsigned char *hash,
+                 const char *text, const size_t hashSize, const size_t textSize);
 
 int main(void) {
 /* ----- セットアップ ----- */
@@ -28,44 +32,49 @@ int main(void) {
     print_green_color("limit = ");
     gmp_printf ("%s%Zd\n", "", limit);
 
-    /* --- マスター秘密鍵生成 --- */
-    mpz_t s;
-    mpz_init(s);
-    create_master_private_key(s, limit);
-    print_green_color("secret = ");
-    gmp_printf ("%s%Zd\n", "", s);
-
-    /* --- ペアリングの生成 --- */
-    EC_PAIRING p;
-    pairing_init(p, "ECBN254a");
+    /* --- 楕円曲線 E の生成 --- */
+    EC_GROUP E;
+    curve_init(E, "ec_bn254_fpa");
 
     /* --- 楕円曲線 E 上の点 P の生成 --- */
     EC_POINT P;
-    point_init(P, p->g2);
+    point_init(P, E);
     point_random(P);
     print_green_color("P =  ");
     point_print(P);
 
-    /* --- sP の計算 --- */
-    EC_POINT sP;
-    point_init(sP, p->g2);
-    point_mul(sP, s, P);
-    print_green_color("sP = ");
-    point_print(sP);
+    /* --- aさんの秘密鍵(a)を生成 --- */
+    mpz_t a;
+    mpz_init(a);
+    create_mpz_t_random(a, limit);
+    print_green_color("a = ");
+    gmp_printf ("%s%Zd\n", "", a);
+
+    /* --- bさんの秘密鍵(b)を生成 --- */
+    mpz_t b;
+    mpz_init(b);
+    create_mpz_t_random(b, limit);
+    print_green_color("b = ");
+    gmp_printf ("%s%Zd\n", "", b);
+
+    /* --- aさんの公開鍵(aP)を生成 --- */
+    EC_POINT aP;
+    point_init(aP, E);
+    point_mul(aP, a, P);
+    print_green_color("aP = ");
+    point_print(aP);
+
+    /* --- bさんの公開鍵(bP)を生成 --- */
+    EC_POINT bP;
+    point_init(bP, E);
+    point_mul(bP, b, P);
+    print_green_color("bP = ");
+    point_print(bP);
 
 /* ----- Encode ----- */
-    /* --- IDと平文mとmの長さ --- */
-    char id[] = "shirase";
-//    char m[]  = "hello_world!";
+    /* --- 平文mとmの長さ --- */
     char m[]  = "hello_world!日本国民は、正当に選挙された国会における代表者を通じて行動し、われらとわれらの子孫のために、諸国民との協和による成果と、わが国全土にわたつて自由のもたらす恵沢を確保し、政府の行為によつて再び戦争の惨禍が起ることのないやうにすることを決意し、ここに主権が国民に存することを宣言し、この憲法を確定する。そもそも国政は、国民の厳粛な信託によるものであつて、その権威は国民に由来し、その権力は国民の代表者がこれを行使し、その福利は国民がこれを享受する。これは人類普遍の原理であり、この憲法は、かかる原理に基くものである。われらは、これに反する一切の憲法、法令及び詔勅を排除する。";
     int m_length = strlen(m);
-
-    /* --- AさんのIDをP_Aに変換 --- */
-    EC_POINT P_A;
-    point_init(P_A, p->g1);
-    hash1(P_A, id);
-    print_green_color("P_A = ");
-    point_print(P_A);
 
     /* --- ランダムな値 r --- */
     mpz_t r;
@@ -76,160 +85,110 @@ int main(void) {
 
     /* --- rP の計算 --- */
     EC_POINT rP;
-    point_init(rP, p->g2);
+    point_init(rP, E);
     point_mul(rP, r, P);
     print_green_color("rP = ");
     point_print(rP);
 
-    /* --- g = e(P_A, sP)^r の計算 --- */
-    Element g;
-    element_init(g, p->g3);
-    pairing_map(g, P_A, sP, p); // $1はg1, $2はg2を使用している必要がある
-    element_pow(g, g, r);       // r乗する
-    print_green_color("g =  ");
-    element_print(g);
+    /* --- rK_A の計算 --- */
+    EC_POINT rK_A;
+    point_init(rK_A, E);
+    point_mul(rK_A, r, aP);
+    print_green_color("rK_A = ");
+    point_print(rK_A);
 
-    /* --- gを文字列化 --- */
-    int g_element_str_length = element_get_str_length(g);
-    char *g_element_str;
-    g_element_str = (char *)malloc(g_element_str_length+1);
-    if(g_element_str == NULL) {
-        printf("メモリが確保できませんでした。\n");
-        return 0;
-    }else{
-        element_get_str(g_element_str, g);
-        print_green_color("g_element_str_length = ");
-        printf("%d\n", g_element_str_length);
-        print_green_color("g_element_str = ");
-        printf("%s\n", g_element_str);
-    }
+    /* --- rK_Aの文字列化 --- */
+    size_t rK_A_oct_size;
+    unsigned char rK_A_oct[m_length+1];
+    point_to_oct(rK_A_oct, &rK_A_oct_size, rK_A);
+    print_unsigned_char(rK_A_oct, "rK_A_oct", rK_A_oct_size);
 
-    /* --- gのハッシュ化 --- */
-    unsigned char g_hash[SHA256_DIGEST_LENGTH];
-    char_to_hash(g_hash, g_element_str);
+    /* --- M + rK_a --- */
+    unsigned char ciphertext[m_length+1];
+    calculation(ADD, ciphertext, rK_A_oct, m, rK_A_oct_size, m_length);
 
-    /* --- g_hashとmをXOR --- */
-    unsigned char ciphertext[strlen(m)+1];
-    exclusive_disjunction(ciphertext, g_hash, m, strlen(g_hash), m_length);
-
-    // この段階で、Enc(m)→暗号文C=(U, v)=(rP, ciphertext)
-
-// 正常にXORできてるか検証
-//    unsigned char ciphertext2[strlen(m)+1];
-//    exclusive_disjunction(ciphertext2, g_hash, ciphertext, strlen(g_hash), m_length);
-//    printf("main ciphertext2: %s\n", ciphertext2);
+    // Enc(M) = (rP, m + rK_A) = (rP, ciphertext) = (C1, C2)
 
 /* ----- Decode ----- */
-    /* --- Aさんの秘密鍵K_Aを生成 --- */
-    EC_POINT K_A;
-    point_init(K_A, p->g1);
-    point_mul(K_A, s, P_A);
-    print_green_color("K_A = ");
-    point_print(K_A);
+    /* --- aC1 --- */
+    EC_POINT arP;
+    point_init(arP, E);
+    point_mul(arP, a, rP);
+    print_green_color("arP = ");
+    point_print(arP);
 
-    /* --- e(K_A, U)の計算 --- */
-    Element a;
-    element_init(a, p->g3);
-    pairing_map(a, K_A, rP, p);
-    print_green_color("a = ");
-    element_print(a);
+    /* --- arPの文字列化 --- */
+    size_t arP_oct_size;
+    unsigned char arP_oct[m_length+1];
+    point_to_oct(arP_oct, &arP_oct_size, arP);
+    print_unsigned_char(arP_oct, "arP_oct", arP_oct_size);
 
-    /* --- aを文字列化 --- */
-    int a_element_str_length = element_get_str_length(a);
-    char *a_element_str;
-    a_element_str = (char *)malloc(a_element_str_length+1);
-    if(a_element_str == NULL) {
-        printf("メモリが確保できませんでした。\n");
-        return 0;
-    }else{
-        element_get_str(a_element_str, a);
-        print_green_color("a_element_str_length = ");
-        printf("%d\n", a_element_str_length);
-        print_green_color("a_element_str = ");
-        printf("%s\n", a_element_str);
-    }
-
-    /* --- aのハッシュ化 --- */
-    unsigned char a_hash[SHA256_DIGEST_LENGTH];
-    char_to_hash(a_hash, a_element_str);
-
-    /* --- v XOR a --- */
-    unsigned char ciphertext3[m_length+1];
-    exclusive_disjunction(ciphertext3, a_hash, ciphertext, strlen(a_hash), m_length);
+    /* --- C2 - aC1 --- */
+    unsigned char plaintext[m_length+1];
+    calculation(SUB, plaintext, arP_oct, ciphertext, arP_oct_size, m_length);
     print_green_color("結果 : ");
-    printf("%s\n", ciphertext3);
+    printf("%s\n", plaintext);
 
 /* ----- 領域の解放 ----- */
-    free(g_element_str);
-    free(a_element_str);
-    mpz_clears(limit, s, r, NULL);
-    element_clear(g);
-    element_clear(a);
+    mpz_clears(limit, a, b, r, NULL);
     point_clear(P);
-    point_clear(sP);
-    point_clear(P_A);
+    point_clear(aP);
+    point_clear(bP);
     point_clear(rP);
-    point_clear(K_A);
-    pairing_clear(p);
-
+    point_clear(arP);
+    point_clear(rK_A);
+    curve_clear(E);
     print_green_color("--- 正常終了 ---\n");
     return 0;
-}
-
-/* -----------------------------------------------
- * IDを貰ってE上の点Pへのハッシュ変換を行う関数
- * $0 ハッシュ変換したものを入れるEC_POINT(点P)
- * $1 ID
- -----------------------------------------------*/
-void hash1(EC_POINT P,const char *id) {
-    point_map_to_point(P, id, strlen(id), 128); // SHA-256
-}
-
-/* -----------------------------------------------
- * 鍵生成局が使用するマスター秘密鍵を生成する関数
- * $0 秘密鍵を入れる変数
- * $1 上限値
- -----------------------------------------------*/
-void create_master_private_key(mpz_t private_key, const mpz_t n) {
-    gmp_randstate_t state;
-    gmp_randinit_default(state);
-    mpz_urandomm(private_key, state, n); // privae_key = (0 <= random value <= n-1)
 }
 
 /* -----------------------------------------------
  * mpz_tでランダムな値を生成する関数
  * $0 生成した値を入れる変数
  * $1 上限値
+ * 参考サイト https://sehermitage.web.fc2.com/etc/gmp_src.html
  -----------------------------------------------*/
 void create_mpz_t_random(mpz_t op, const mpz_t n) {
     gmp_randstate_t state;
     gmp_randinit_default(state);
+
+    struct timeval tv, tv2;
+    gettimeofday(&tv2, NULL);
+
+    do {
+        gettimeofday(&tv, NULL);
+    } while (tv.tv_usec == tv2.tv_usec);
+
+    gmp_randseed_ui(state, tv.tv_usec);
     mpz_urandomm(op, state, n);
+
+    gmp_randclear(state);
 }
 
 /* -----------------------------------------------
- * 文字列をSHA256でハッシュ化する関数
- * $0 ハッシュ化したものを入れるchar配列ポインタ
- * $1 ハッシュ化する文字列
-  -----------------------------------------------*/
-void char_to_hash(unsigned char *hash, const char* id){
-    SHA256(id,strlen(id),hash);
-    print_unsigned_char(hash, "hash", SHA256_DIGEST_LENGTH);
-}
-
-/* -----------------------------------------------
- * 排他的論理和を計算する関数
- * $0 計算結果を入れるu_char配列ポインタ
- * $1 XORする値
- * $2 平文/暗号化文
- * $3 ハッシュの文字数
- * $4 テキストの文字数
+ * 演算関数
+ * $0 演算モード
+ * $1 計算結果を入れるu_char配列ポインタ
+ * $2 XORする値
+ * $3 平文/暗号化文
+ * $4 ハッシュの文字数
+ * $5 テキストの文字数
  -----------------------------------------------*/
-void exclusive_disjunction(unsigned char *ciphertext, const unsigned char *hash,
-                           const char *text, const size_t hashSize, const size_t textSize) {
-    // 1文字ずつ分解し、XOR演算する
+void calculation(Mode mode, unsigned char *ciphertext, const unsigned char *hash,
+                 const char *text, const size_t hashSize, const size_t textSize) {
+    // 1文字ずつ分解し、演算する
     for(size_t i=0; i<textSize; i++){
-        ciphertext[i] = text[i]^hash[i%hashSize];
+        switch (mode) {
+            case 0:
+                ciphertext[i] = text[i] + hash[i%hashSize];
+                break;
+            case 1:
+                ciphertext[i] = text[i] - hash[i%hashSize];
+                break;
+            case 2:
+                ciphertext[i] = text[i] ^ hash[i%hashSize];
+                break;
+        }
     }
     ciphertext[textSize] = '\0';
     print_unsigned_char(ciphertext, "ciphertext", textSize);
