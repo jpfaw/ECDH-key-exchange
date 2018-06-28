@@ -1,8 +1,7 @@
-# Proxy-Re-Encryption
+# ECDH-key-exchange
 
 ## Overview
-プロキシ再暗号化(代理人再暗号化)を実装してみたい  
-とりあえずECDH鍵共有からやっている途中  
+ECDH鍵交換をC言語でやってみよう！ってやつ
   
 ## 使用ライブラリ
  - OpenSSL (OpenSSL 1.0.2k-fips  26 Jan 2017)
