@@ -11,4 +11,4 @@ ECDH鍵交換をC言語でやってみよう！ってやつ
  
  ## 実装内容
  ### ECDH鍵交換
- ![画像](https://github.com/jpfaw/Proxy-Re-Encryption/blob/README_files/Images/ECDH.png?raw=true)
+ ![画像](https://github.com/jpfaw/ECDH-key-exchange/blob/README_files/Images/ECDH.png?raw=true)
